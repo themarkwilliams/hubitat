@@ -37,6 +37,9 @@ preferences {
             input name: "checkTime", type: "time", title: "Daily check time", defaultValue: "08:00", required: true
             input name: "notifyOnRecovery", type: "bool", title: "Notify when battery recovers above threshold", defaultValue: false
         }
+        section("Manual Check") {
+            input name: "checkNow", type: "button", title: "Check All Devices Now"
+        }
         section("Options") {
             input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: true
         }
@@ -62,6 +65,13 @@ def initialize() {
     schedule(checkTime, dailyCheck)
     if (logEnable) runIn(1800, logsOff)
     runIn(5, checkAllDevices)  // catch already-low devices on install/update
+}
+
+def appButtonHandler(btn) {
+    if (btn == "checkNow") {
+        log.info "Manual battery check triggered"
+        checkAllDevices()
+    }
 }
 
 def logsOff() {
