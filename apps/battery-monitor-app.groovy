@@ -114,7 +114,7 @@ private Integer parseLevel(value) {
     if (value == null) return null
     def str = value.toString().trim()
     if (!str.isNumber()) return null
-    def num = str.toFloat().toInt()
+    def num = Math.round(str.toFloat()) as int
     if (num < 0 || num > 100) return null
     return num
 }
