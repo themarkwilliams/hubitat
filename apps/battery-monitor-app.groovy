@@ -85,17 +85,20 @@ def dailyCheck() {
 }
 
 def checkAllDevices() {
+    log.info "Checking ${batteryDevices.size()} device(s) (threshold: ${batteryThreshold}%)"
     batteryDevices.each { device ->
         def rawValue = device.currentValue("battery")
         if (rawValue == null) {
-            log.warn "No battery value available for ${device.displayName}"
+            log.warn "${device.displayName}: no battery value available"
             return
         }
         def level = parseLevel(rawValue)
         if (level == null) {
-            log.warn "Invalid battery value '${rawValue}' from ${device.displayName}"
+            log.warn "${device.displayName}: invalid battery value '${rawValue}'"
             return
         }
+        def status = level < (batteryThreshold as int) ? "LOW" : "OK"
+        log.info "${device.displayName}: ${level}% [${status}]"
         evaluateLevel(device, level)
     }
 }
