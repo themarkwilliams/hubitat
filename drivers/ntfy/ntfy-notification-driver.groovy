@@ -4,7 +4,7 @@
  * This driver enables sending notifications through the ntfy.sh service
  * or self-hosted ntfy instances.
  *
- * Author: Created for marktastic
+ * Author: themarkwilliams
  * Date: April 25, 2025
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -16,8 +16,8 @@
 metadata {
     definition(
         name: "Ntfy Notification",
-        namespace: "hubitat",
-        author: "Custom",
+        namespace: "themarkwilliams",
+        author: "themarkwilliams",
         description: "Send notifications through ntfy service",
         iconUrl: "",
         iconX2Url: ""
@@ -28,14 +28,14 @@ metadata {
         attribute "lastMessageSent", "STRING"
         
         command "testMessage", [[name: "Test Message*", type: "STRING", description: "Send a test message"]]
-        command "clearLastMessage", [[name: "Clear the last message sent"]]
+        command "clearLastMessage", []
         command "setPriority", [[name:"priority*", type: "ENUM", constraints: ["min", "low", "default", "high", "max"], description: "Set the priority for notifications"]]
         command "setTitle", [[name:"title*", type: "STRING", description: "Set a default title for notifications"]]
         command "setTags", [[name:"tags*", type: "STRING", description: "Set tags for notifications (comma-separated)"]]
     }
     
     preferences {
-        input name: "ntfyServer", type: "text", title: "Ntfy Server", description: "Your ntfy server URL (without https://)", defaultValue: "alert.marktastic.com", required: true
+        input name: "ntfyServer", type: "text", title: "Ntfy Server", description: "Your ntfy server URL (without https://)", defaultValue: "ntfy.sh", required: true
         input name: "ntfyTopic", type: "text", title: "Topic Name", description: "Topic to publish to", required: true
         input name: "ntfyAuthToken", type: "password", title: "Authentication Token", description: "Your ntfy authentication token", required: true
         input name: "defaultPriority", type: "enum", title: "Default Priority", options: ["min", "low", "default", "high", "max"], defaultValue: "default", required: true
@@ -45,20 +45,21 @@ metadata {
     }
 }
 
-// Initialize variables
 def installed() {
     log.info "Ntfy Notification Driver Installed"
-    state.priority = settings.defaultPriority ?: "default"
-    state.title = settings.defaultTitle ?: "Hubitat Alert"
-    state.tags = settings.defaultTags ?: "hubitat"
-    state.lastMessage = ""
+    initialize()
 }
 
 def updated() {
     log.info "Ntfy Notification Driver Updated"
+    initialize()
+}
+
+def initialize() {
     state.priority = settings.defaultPriority ?: "default"
     state.title = settings.defaultTitle ?: "Hubitat Alert"
     state.tags = settings.defaultTags ?: "hubitat"
+    if (!state.lastMessage) state.lastMessage = ""
     if (logEnable) runIn(1800, logsOff)
 }
 
@@ -110,8 +111,8 @@ def deviceNotification(message) {
 }
 
 // Implementation of "Speech Synthesis" capability
-def speak(message) {
-    deviceNotification(message)
+def speak(String text, BigDecimal volume = null, String voice = null) {
+    deviceNotification(text)
 }
 
 // Send message to ntfy
@@ -144,11 +145,7 @@ private sendNtfyMessage(message) {
         ]
         
         httpPost(postParams) { response ->
-            if (response.status == 200) {
-                if (logEnable) log.debug "ntfy message sent successfully"
-            } else {
-                log.error "ntfy returned HTTP error ${response.status}"
-            }
+            if (logEnable) log.debug "ntfy message sent successfully (HTTP ${response.status})"
         }
     } catch (Exception e) {
         log.error "Error sending ntfy message: ${e.message}"
