@@ -1,4 +1,4 @@
-# Hubitat Packages — marktastic
+# Hubitat Packages
 
 A collection of Hubitat apps and drivers for home automation.
 
