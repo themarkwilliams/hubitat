@@ -1,29 +1,30 @@
 #!/usr/bin/env python3
 """
-Export all Hubitat apps, integrations, and automations to text files,
-then optionally AI-review them with Claude.
+Export all Hubitat apps, integrations, and automations to text files.
 
 Usage:
-  uv run tools/export_hubitat.py            # export only
-  uv run tools/export_hubitat.py --review   # export + AI review
+  uv run tools/export_hubitat.py
 
-Output structure:
+Output:
   backup/apps/            YYYYMMDD <Name> _base.txt
   backup/integrations/    YYYYMMDD <Name> _base.txt
   backup/automations/     YYYYMMDD <Name> _base.txt
+  backup/devices.json     device id → label map
 
-File naming:
-  _base.txt    initial export
-  _update.txt  corrected JSON ready for reimport (written by --review)
-  _review.json structured metadata per item (priority, group, changes)
-  REVIEW_YYYYMMDD.md  prioritised summary of all recommendations
+Files are skipped if they already exist for today's date.
+
+To review exports and get AI recommendations, open Claude Code and ask it to
+review the backup/ directory. Claude Code reads the exported files and
+backup/devices.json directly and writes:
+  _update.txt      corrected JSON ready for reimport
+  _review.json     structured metadata (priority, group, changes)
+  REVIEW_YYYYMMDD.md  prioritised/grouped summary with links
 """
 
 import argparse
 import asyncio
 import io
 import json
-import os
 import re
 import sys
 from datetime import date
@@ -33,7 +34,6 @@ from urllib.request import urlopen
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 from playwright.async_api import async_playwright, Page
-import anthropic
 
 HUB = "http://192.168.1.200"
 RULE_MACHINE_ID = 95  # Rule Machine parent app
@@ -67,10 +67,6 @@ def base_path(category: str, name: str) -> Path:
     folder = CATEGORY_DIRS.get(category, BACKUP_DIR / "apps")
     folder.mkdir(parents=True, exist_ok=True)
     return folder / f"{TODAY} {safe_name(name)} _base.txt"
-
-
-def update_path(p: Path) -> Path:
-    return p.parent / p.name.replace("_base.txt", "_update.txt")
 
 
 # ---------------------------------------------------------------------------
@@ -393,171 +389,19 @@ async def export_all(page: Page) -> list[tuple[Path, str]]:
 DEVICES_PATH = BACKUP_DIR / "devices.json"
 
 
-def fetch_device_map() -> dict[str, str]:
-    """Return {str(device_id): label} for every device on the hub."""
+def save_device_map() -> None:
+    """Fetch all hub devices and write backup/devices.json (id → label)."""
     try:
         devices = fetch_json("/device/list/all/data")
-        return {
+        dm = {
             str(d["id"]): (d.get("label") or d.get("name") or "").strip()
             for d in devices
         }
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        DEVICES_PATH.write_text(json.dumps(dm, indent=2, sort_keys=True), encoding="utf-8")
+        print(f"  Device map: {DEVICES_PATH} ({len(dm)} devices)")
     except Exception as e:
-        print(f"  Warning: could not fetch device map: {e}")
-        return {}
-
-
-def load_device_map() -> dict[str, str]:
-    """Load from disk if present, otherwise fetch and save."""
-    if DEVICES_PATH.exists():
-        return json.loads(DEVICES_PATH.read_text(encoding="utf-8"))
-    dm = fetch_device_map()
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    DEVICES_PATH.write_text(json.dumps(dm, indent=2, sort_keys=True), encoding="utf-8")
-    print(f"  Device map saved: {DEVICES_PATH} ({len(dm)} devices)")
-    return dm
-
-
-def _device_context(content: str, device_map: dict[str, str]) -> str:
-    """Return only device map entries whose IDs appear in the content string."""
-    relevant = {k: v for k, v in device_map.items() if k in content}
-    return json.dumps(relevant, ensure_ascii=False) if relevant else "(none referenced)"
-
-
-# ---------------------------------------------------------------------------
-# AI review
-# ---------------------------------------------------------------------------
-
-def _meta_path(base: Path) -> Path:
-    return base.parent / base.name.replace("_base.txt", "_review.json")
-
-
-def review_with_claude(export_path: Path, name: str, device_map: dict[str, str]) -> dict:
-    """
-    Review one exported file with Claude.
-
-    Writes:
-      _update.txt   — corrected JSON, clean and directly importable
-      _review.json  — structured metadata (priority, group, changes)
-
-    Returns the metadata dict.
-    """
-    upd = update_path(export_path)
-    meta_p = _meta_path(export_path)
-    if upd.exists() and meta_p.exists():
-        print(f"    [skip] review exists")
-        return json.loads(meta_p.read_text(encoding="utf-8"))
-
-    content = export_path.read_text(encoding="utf-8")
-    dm_context = _device_context(content, device_map)
-
-    prompt = (
-        "You are a Hubitat smart home automation expert. Review this exported Hubitat "
-        "app/automation configuration and, where improvements are needed, apply them "
-        "directly to produce a corrected version ready for reimport.\n\n"
-        f"Device map (id → label, for context only — never change any ID values):\n{dm_context}\n\n"
-        f"App/rule name: {name}\n\n"
-        f"Exported configuration:\n{content}\n\n"
-        "Rules:\n"
-        "- Apply fixes directly to the JSON; do not merely describe them\n"
-        "- Preserve all device IDs, app IDs, and hub-specific values exactly as-is\n"
-        "- Be conservative: only change what is clearly wrong or clearly improvable\n"
-        "- If no changes are needed, return the original JSON unchanged\n"
-        '- Set priority "none" and group "none" when returning unchanged\n\n'
-        "Respond in exactly this format with no other text:\n\n"
-        "CORRECTED_JSON\n"
-        "<complete corrected JSON here>\n"
-        "END_CORRECTED_JSON\n"
-        "CHANGES\n"
-        '{"priority": "high|medium|low|none", "group": "bug|reliability|simplification|optimisation|none", '
-        '"summary": "<one sentence>", "changes": ["<change 1>", "<change 2>"]}\n'
-        "END_CHANGES"
-    )
-
-    client = anthropic.Anthropic()
-    msg = client.messages.create(
-        model="claude-opus-4-7",
-        max_tokens=8192,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = msg.content[0].text
-
-    json_match = re.search(r"CORRECTED_JSON\n(.*?)\nEND_CORRECTED_JSON", text, re.DOTALL)
-    corrected = json_match.group(1).strip() if json_match else content
-
-    changes_match = re.search(r"CHANGES\n(.*?)\nEND_CHANGES", text, re.DOTALL)
-    try:
-        meta = json.loads(changes_match.group(1).strip()) if changes_match else {}
-    except json.JSONDecodeError:
-        meta = {"priority": "none", "group": "none", "summary": "metadata parse error", "changes": []}
-
-    upd.write_text(corrected, encoding="utf-8")
-    meta_p.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"    -> {upd} [{meta.get('priority', '?')}]")
-    return meta
-
-
-# ---------------------------------------------------------------------------
-# Review summary
-# ---------------------------------------------------------------------------
-
-_PRIORITY_ORDER = ["high", "medium", "low", "none"]
-_PRIORITY_LABELS = {
-    "high": "High Priority",
-    "medium": "Medium Priority",
-    "low": "Low Priority",
-}
-_GROUP_ORDER = ["bug", "reliability", "simplification", "optimisation", "none"]
-_GROUP_LABELS = {
-    "bug": "Bugs",
-    "reliability": "Reliability",
-    "simplification": "Simplification",
-    "optimisation": "Optimisation",
-    "none": "Other",
-}
-
-
-def build_review_summary(results: list[tuple[Path, str, dict]]) -> Path:
-    summary_path = BACKUP_DIR / f"REVIEW_{TODAY}.md"
-
-    buckets: dict[str, dict[str, list]] = {p: {} for p in _PRIORITY_ORDER}
-    for path, name, meta in results:
-        priority = meta.get("priority", "none")
-        if priority not in buckets:
-            priority = "none"
-        group = meta.get("group", "none")
-        if group not in _GROUP_ORDER:
-            group = "none"
-        buckets[priority].setdefault(group, []).append((path, name, meta))
-
-    lines = [f"# Hubitat Automation Review — {date.today().strftime('%Y-%m-%d')}\n"]
-
-    for priority in _PRIORITY_ORDER:
-        groups = buckets[priority]
-        if not groups:
-            continue
-
-        if priority == "none":
-            no_change_names = [name for items in groups.values() for _, name, _ in items]
-            if no_change_names:
-                lines.append("\n## No Changes Recommended\n")
-                lines.append(", ".join(no_change_names) + "\n")
-        else:
-            lines.append(f"\n## {_PRIORITY_LABELS[priority]}\n")
-            for group in _GROUP_ORDER:
-                items = groups.get(group, [])
-                if not items:
-                    continue
-                lines.append(f"\n### {_GROUP_LABELS.get(group, group.title())}\n")
-                for path, name, meta in items:
-                    upd = update_path(path)
-                    rel = str(upd.relative_to(BACKUP_DIR)).replace("\\", "/")
-                    lines.append(f"- [{name}](<{rel}>) — {meta.get('summary', '')}")
-                    for change in meta.get("changes", []):
-                        lines.append(f"  - {change}")
-                lines.append("")
-
-    summary_path.write_text("\n".join(lines), encoding="utf-8")
-    return summary_path
+        print(f"  Warning: could not save device map: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -565,17 +409,9 @@ def build_review_summary(results: list[tuple[Path, str, dict]]) -> Path:
 # ---------------------------------------------------------------------------
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="Export Hubitat apps and optionally review with Claude")
-    parser.add_argument("--review", action="store_true", help="AI-review exported files with Claude")
+    parser = argparse.ArgumentParser(description="Export all Hubitat apps to backup/")
     parser.add_argument("--headless", default=True, action=argparse.BooleanOptionalAction)
     args = parser.parse_args()
-
-    if args.review and not os.environ.get("ANTHROPIC_API_KEY"):
-        print("Error: ANTHROPIC_API_KEY environment variable is not set.")
-        print("Set it with:")
-        print('  $env:ANTHROPIC_API_KEY = "sk-ant-..."          # PowerShell (current session)')
-        print('  [System.Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-ant-...", "User")  # permanent')
-        sys.exit(1)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=args.headless)
@@ -589,26 +425,10 @@ async def main() -> None:
         await browser.close()
 
     print(f"\nExported {len(exported)} items")
-
-    if args.review and exported:
-        print("\nFetching device map...")
-        device_map = load_device_map()
-        print(f"  {len(device_map)} devices")
-
-        print("\nReviewing with Claude...")
-        review_results: list[tuple[Path, str, dict]] = []
-        for path, name in exported:
-            print(f"  Reviewing {name}...")
-            try:
-                meta = review_with_claude(path, name, device_map)
-                review_results.append((path, name, meta))
-            except Exception as e:
-                print(f"    Review failed: {e}")
-
-        summary_path = build_review_summary(review_results)
-        print(f"\nReview summary: {summary_path}")
-
-    print("\nDone!")
+    save_device_map()
+    print("\nDone! To review exports, open Claude Code and ask it to review the backup/ directory.")
+    print("Claude Code reads the exported files and devices.json directly, then writes")
+    print("_update.txt (corrected importable JSON) and REVIEW_YYYYMMDD.md per run.")
 
 
 if __name__ == "__main__":
