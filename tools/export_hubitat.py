@@ -74,15 +74,54 @@ def update_path(p: Path) -> Path:
 # Playwright helpers
 # ---------------------------------------------------------------------------
 
+_MODEL_HAS_DOWNLOAD = """() => {
+    if (!window.model || !window.model.configPage) return false;
+    const inputs = (window.model.configPage.sections || []).flatMap(s => s.input || []);
+    return inputs.some(i => (i.name === 'ruledownload' && i.filecontent) || i.name === 'fileName');
+}"""
+
+_MODEL_HAS_CONTENT = """() => {
+    if (!window.model || !window.model.configPage) return false;
+    const inputs = (window.model.configPage.sections || []).flatMap(s => s.input || []);
+    return inputs.some(i => i.name === 'ruledownload' && i.filecontent);
+}"""
+
+_MODEL_EXTRACT = """() => {
+    const inputs = (window.model.configPage.sections || []).flatMap(s => s.input || []);
+    const rd = inputs.find(i => i.name === 'ruledownload');
+    const fn = inputs.find(i => i.name === 'fileName');
+    if (rd && rd.filecontent) return {type: 'content', data: rd.filecontent};
+    if (fn) return {type: 'filename'};
+    return null;
+}"""
+
+
+def _find_filecontent(data) -> str | None:
+    """Recursively find a non-empty filecontent value anywhere in the response."""
+    if isinstance(data, dict):
+        fc = data.get("filecontent")
+        if fc:
+            return str(fc)
+        for v in data.values():
+            result = _find_filecontent(v)
+            if result:
+                return result
+    elif isinstance(data, list):
+        for item in data:
+            result = _find_filecontent(item)
+            if result:
+                return result
+    return None
+
+
 async def export_one(page: Page, app_id: int, app_name: str) -> str | None:
     """
     Export a single app and return the JSON content string, or None on failure.
 
-    Flow:
-      1. Navigate to /installedapp/sysAppApi/appCloner/app/{id}
-         → hub creates an Export instance and redirects to its configure page
-      2. Click the Export button
-      3. Read the content from the hidden input field
+    Some exports have an intermediate 'fileName' step (e.g. rules with a
+    required expression that is currently false). After clicking the export
+    button, window.model is checked; if a fileName input appears the default
+    name is submitted to proceed to the actual download.
     """
     try:
         await page.goto(f"{HUB}/installedapp/sysAppApi/appCloner/app/{app_id}")
@@ -101,19 +140,72 @@ async def export_one(page: Page, app_id: int, app_name: str) -> str | None:
         return None
 
     try:
-        # force=True bypasses MDL button animation stability check
         await export_btn.click(force=True)
-        await page.wait_for_selector('button[id="settings[ruledownload]"]', timeout=30000)
+        await page.wait_for_load_state("networkidle")
     except Exception as e:
         print(f"    Export click failed for {app_name}: {e}")
         return None
 
-    content = await page.locator('input[id="ruledownload-value"]').get_attribute("value")
-    if not content:
-        print(f"    Empty content for {app_name}")
+    # Wait for window.model to reflect either direct content or the fileName step
+    try:
+        await page.wait_for_function(_MODEL_HAS_DOWNLOAD, timeout=30000)
+    except Exception as e:
+        print(f"    Timeout waiting for export result: {e}")
         return None
 
-    return content
+    result = await page.evaluate(_MODEL_EXTRACT)
+
+    # Direct content — done
+    if result and result["type"] == "content":
+        return result["data"]
+
+    # Intermediate fileName step — intercept the AJAX response directly
+    if result and result["type"] == "filename":
+        safe = re.sub(r"[^\w\-]", "_", app_name)[:60]
+        try:
+            async with page.expect_response(
+                lambda r: "/installedapp/update/json" in r.url,
+                timeout=30000,
+            ) as resp_info:
+                await page.evaluate(
+                    """(name) => { jsonSubmit('settings[fileName]', name, false, false, false); }""",
+                    safe,
+                )
+            response = await resp_info.value
+            ct = response.headers.get("content-type", "")
+            if "json" in ct or "javascript" in ct:
+                data = await response.json()
+                fc = _find_filecontent(data)
+                if fc:
+                    return fc
+                # Some rule types (paused, required-expression-false, repeating)
+                # return the exported content in configPage.content instead of
+                # in a sections-based filecontent field.
+                config_content = (data.get("configPage") or {}).get("content", "").strip()
+                if config_content:
+                    return config_content
+                def _summarise(d, depth=0):
+                    if depth > 3:
+                        return "..."
+                    if isinstance(d, dict):
+                        return {k: _summarise(v, depth + 1) for k, v in list(d.items())[:8] if k != "filecontent"}
+                    if isinstance(d, list):
+                        return [_summarise(i, depth + 1) for i in d[:3]]
+                    return type(d).__name__
+                print(f"    No filecontent in response: {json.dumps(_summarise(data))[:400]}")
+            else:
+                # Direct file body (non-JSON download)
+                body_bytes = await response.body()
+                text = body_bytes.decode("utf-8", errors="replace").strip()
+                if text:
+                    return text
+                print(f"    Empty non-JSON response (content-type: {ct})")
+        except Exception as e:
+            print(f"    Timeout after filename step: {e}")
+        return None
+
+    print(f"    Empty content for {app_name}")
+    return None
 
 
 async def export_children(page: Page, cloner_url: str, parent_name: str, category: str) -> list[tuple[Path, str]]:
