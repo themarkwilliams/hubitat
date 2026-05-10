@@ -13,14 +13,17 @@ Output structure:
   backup/automations/     YYYYMMDD <Name> _base.txt
 
 File naming:
-  _base.txt   initial export
-  _update.txt AI review + suggestions (written alongside _base.txt)
+  _base.txt    initial export
+  _update.txt  corrected JSON ready for reimport (written by --review)
+  _review.json structured metadata per item (priority, group, changes)
+  REVIEW_YYYYMMDD.md  prioritised summary of all recommendations
 """
 
 import argparse
 import asyncio
 import io
 import json
+import os
 import re
 import sys
 from datetime import date
@@ -566,6 +569,13 @@ async def main() -> None:
     parser.add_argument("--review", action="store_true", help="AI-review exported files with Claude")
     parser.add_argument("--headless", default=True, action=argparse.BooleanOptionalAction)
     args = parser.parse_args()
+
+    if args.review and not os.environ.get("ANTHROPIC_API_KEY"):
+        print("Error: ANTHROPIC_API_KEY environment variable is not set.")
+        print("Set it with:")
+        print('  $env:ANTHROPIC_API_KEY = "sk-ant-..."          # PowerShell (current session)')
+        print('  [System.Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-ant-...", "User")  # permanent')
+        sys.exit(1)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=args.headless)
