@@ -116,6 +116,86 @@ async def export_one(page: Page, app_id: int, app_name: str) -> str | None:
     return content
 
 
+async def export_children(page: Page, cloner_url: str, parent_name: str, category: str) -> list[tuple[Path, str]]:
+    """
+    Export children of a parent app via its exportRule multi-select dropdown.
+    Page must already be at the cloner configure page (cloner_url).
+    Returns list of (path, name) for each successfully saved child.
+
+    The Hubitat old UI uses jsonSubmit() which:
+    1. Serialises multi-selects as JSON arrays: settings[exportRule]=["620"]
+    2. POSTs to /installedapp/update/json and stores the response in window.model
+    3. filecontent is in model.configPage.sections[].input[].filecontent
+    """
+    select_sel = 'select[name="settings[exportRule]"]'
+
+    option_elements = await page.locator(f"{select_sel} option").all()
+    options = [(await o.get_attribute("value"), (await o.text_content() or "").strip())
+               for o in option_elements]
+    options = [(v, l) for v, l in options if v and l]
+
+    if not options:
+        print(f"    No child options found for {parent_name}")
+        return []
+
+    results = []
+    for value, label in options:
+        out = base_path(category, label)
+        if out.exists():
+            print(f"    [skip] {label}")
+            results.append((out, label))
+            continue
+
+        print(f"    Exporting child: {label} (id={value})...")
+
+        try:
+            await page.goto(cloner_url)
+            await page.wait_for_load_state("networkidle")
+
+            # Select the option and call jsonSubmit exactly as the Hubitat UI does.
+            # Multi-select values must be a JSON-encoded array string e.g. '["620"]'.
+            # After the AJAX call, window.model holds the response JSON.
+            await page.evaluate("""(v) => {
+                const sel = document.querySelector('select[name="settings[exportRule]"]');
+                if (!sel) throw new Error('select not found');
+                for (const opt of sel.options) opt.selected = (opt.value === v);
+                jsonSubmit('settings[exportRule]', JSON.stringify($(sel).val()), false, false, false);
+            }""", value)
+
+            # jsonSubmit uses $.post (async); wait for the response to land in window.model
+            await page.wait_for_function(
+                """() => window.model && window.model.configPage &&
+                   window.model.configPage.sections &&
+                   window.model.configPage.sections.some(
+                       s => s.input && s.input.some(i => i.name === 'ruledownload')
+                   )""",
+                timeout=30000
+            )
+
+            filecontent = await page.evaluate("""() => {
+                for (const s of window.model.configPage.sections || []) {
+                    for (const inp of s.input || []) {
+                        if (inp.name === 'ruledownload' && inp.filecontent) {
+                            return inp.filecontent;
+                        }
+                    }
+                }
+                return null;
+            }""")
+
+            if filecontent:
+                out.write_text(filecontent, encoding="utf-8")
+                print(f"      -> {out}")
+                results.append((out, label))
+            else:
+                print(f"      Empty filecontent for {label}")
+
+        except Exception as e:
+            print(f"      Export failed for {label}: {e}")
+
+    return results
+
+
 async def get_rule_machine_rules(page: Page) -> list[dict]:
     """Return list of Rule Machine child rules with id and label."""
     # Must navigate to the Rule Machine configure page first so the hub
@@ -175,6 +255,11 @@ async def export_all(page: Page) -> list[tuple[Path, str]]:
             out.write_text(content, encoding="utf-8")
             print(f"    -> {out}")
             exported.append((out, name))
+        elif await page.locator('select[name="settings[exportRule]"]').count():
+            children = await export_children(page, page.url, name, category)
+            exported.extend(children)
+            if not children:
+                print(f"    -> FAILED (no children exported)")
         else:
             print(f"    -> FAILED")
 
