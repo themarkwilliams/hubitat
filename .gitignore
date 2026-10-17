@@ -2,4 +2,3 @@ backup/
 .env
 /.env
 /command.txt
-/apps/device-watchdog/

@@ -16,6 +16,7 @@ Sends push notifications through the [ntfy](https://ntfy.sh) service (self-hoste
 - Bearer token authentication
 - Configurable default title, priority, and tags per ntfy spec
 - Override priority, title, and tags at runtime via commands
+- Optional auto context: picks title, priority, and tags from the message text (see below)
 - Auto-disables debug logging after 30 minutes
 
 **Preferences:**
@@ -27,6 +28,21 @@ Sends push notifications through the [ntfy](https://ntfy.sh) service (self-hoste
 | Default Priority | min / low / default / high / max |
 | Default Title | Title shown in push notification |
 | Default Tags | Comma-separated ntfy emoji tags (e.g. `warning,home`) |
+| Set title, priority and tags from message content | Auto context on/off (default: off) |
+| Enable debug logging | Debug logs; turns itself off after 30 minutes |
+
+**Commands:** `testMessage`, `clearLastMessage`, `setPriority`, `setTitle`, `setTags`
+
+**Auto context:** when enabled, messages matching these patterns override the defaults. Anything else uses the default title, priority, and tags.
+
+| Message | Title | Priority | Tags |
+|---|---|---|---|
+| contains `could be malfunctioning` | Freezer Alert | max | `rotating_light` 🚨 |
+| starts with `Activity Report` | Device Not Checking In | high | `warning,zzz` ⚠️💤 |
+| starts with `Battery Report` | Low Battery | high | `warning,battery` ⚠️🔋 |
+| starts with `Nothing to report` | Device Watchdog | low | `white_check_mark` ✅ |
+
+The freezer row matches a Rule Machine freezer alert; the other three match Device Watchdog reports (below).
 
 ---
 
@@ -43,6 +59,7 @@ Monitors battery levels across any number of devices and sends an alert when a d
 - Deduplication — only notifies once per low-battery episode, not on every event
 - Optional recovery notification when a device climbs back above threshold
 - Clears low-battery state automatically on recovery
+- "Check All Devices Now" button for an on-demand scan
 - Auto-disables debug logging after 30 minutes
 
 **Preferences:**
@@ -54,6 +71,19 @@ Monitors battery levels across any number of devices and sends an alert when a d
 | Daily Check Time | When to run the scheduled full scan (default: 08:00) |
 | Notify on Recovery | Send an alert when battery recovers above threshold |
 
+### Device Watchdog (third-party, modified)
+**Files:** `apps/device-watchdog/device-watchdog-parent.groovy`, `apps/device-watchdog/device-watchdog-child.groovy`
+
+Daily reports of devices that haven't checked in, low batteries, and device status. Written by Bryan Turcotte ([@bptworld](https://github.com/bptworld)), version 2.4.8. The author has since removed the source from GitHub, so this is a copy of what's installed on the hub, licensed under Apache 2.0 (see `apps/device-watchdog/LICENSE`).
+
+**Local changes** (child app only, marked `2.4.8a` in its change log):
+- Report dates include seconds (the original format was `h:mm: a`)
+
+**Things to know:**
+- "Number of hours for Devices to be considered inactive" is in **hours**, not minutes
+- With push enabled and nothing wrong, it sends one "Nothing to report." per report type each run. Turn on "Only send Push if there is something to actually report" to stop that
+- Needs the `BPTWorld.bpt-normalStuff` library installed on the hub (not included here)
+
 ---
 
 ## Tools
@@ -62,7 +92,7 @@ Local Python scripts for exploring and backing up your hub. Requires [uv](https:
 
 **Setup:**
 ```bash
-cp .env.example .env   # then fill in your HUBITAT_TOKEN
+cp .env.example .env   # then set HUBITAT_IP and HUBITAT_TOKEN
 uv sync
 ```
 
@@ -89,17 +119,20 @@ uv run tools/browse.py
 | `show <id>` | no | Full JSON for any device or app by ID |
 | `raw <path>` | no | Fetch any hub path, e.g. `raw /hub2/hubData` |
 | `export <section>` | — | Save a section to a local JSON file |
+| `help` | no | List commands |
 
 The Maker API token is read from `.env` (`HUBITAT_TOKEN`). Without it, token-required commands are unavailable but everything else works.
 
-**What is not accessible via API (as of firmware 2.5.x):** Rule Machine rules are stored in the hub's H2 database only. Export rules manually from the Rule Machine UI (open a rule → Export Rule button).
+The Maker API instance ID is hard-coded as `MAKER_ID = 618` in `browse.py`; change it if your Maker API app has a different ID.
+
+**Not available from these JSON endpoints (as of firmware 2.5.x):** Rule Machine rule definitions. Use the Hub Exporter below, which exports them through the hub's Export/Import/Clone UI.
 
 ---
 
 ### Hub Exporter
 **File:** `tools/export_hubitat.py`
 
-Exports all installed Hubitat apps, integrations, and automations to timestamped text files using Playwright to drive the hub's Export/Import/Clone UI. All logic is self-contained in a single file.
+Exports all installed Hubitat apps, integrations, and automations (including Rule Machine rules) to timestamped text files using Playwright to drive the hub's Export/Import/Clone UI. All logic is self-contained in a single file.
 
 ```bash
 uv run tools/export_hubitat.py              # export only
