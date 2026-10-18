@@ -15,6 +15,9 @@
 * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
 * for the specific language governing permissions and limitations under the License.
 *
+* Local change (2026-10-18): refresh() no longer throws a NullPointerException when the Bhyve
+* cloud sends watering_status without current_station (null-safe toInteger() at the station check)
+*
 */
 import groovy.time.*
 import java.text.SimpleDateFormat
@@ -262,7 +265,7 @@ def updateTiles(data) {
                         else {
                             for (valveDevice in getValveDevices(it.id)) {
                                 def deviceStationId = getStationFromDNI(valveDevice.deviceNetworkId)
-                                if (it.status.watering_status.current_station.toInteger() == deviceStationId.toInteger()) {
+                                if (it.status.watering_status.current_station?.toInteger() == deviceStationId?.toInteger()) {
                                     if (valveDevice.currentValue("valve") != "open") {
                                         debugVerbose "Opening station ${deviceStationId}"
                                         valveDevice.sendEvent(name:"valve", value: "open")

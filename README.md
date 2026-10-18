@@ -84,6 +84,14 @@ Daily reports of devices that haven't checked in, low batteries, and device stat
 - With push enabled and nothing wrong, it sends one "Nothing to report." per report type each run. Turn on "Only send Push if there is something to actually report" to stop that
 - Needs the `BPTWorld.bpt-normalStuff` library installed on the hub (not included here)
 
+### Orbit Bhyve Controller (third-party, modified)
+**File:** `apps/orbit-bhyve/orbit-bhyve-controller.groovy`
+
+Mirrors Orbit B-Hyve hose timers into Hubitat (valve state, battery, watering status) through the Orbit cloud. Written by Kurt Sanders and Dominick Meglio, licensed under Apache 2.0 (see `apps/orbit-bhyve/LICENSE`). The first commit of this file is the unmodified copy from the hub.
+
+**Local changes:**
+- `refresh()` no longer throws a `NullPointerException` when the Orbit cloud sends a watering status without a current station. Before, the error stopped the refresh partway, so later timers could miss their update.
+
 ---
 
 ## Tools
