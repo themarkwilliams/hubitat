@@ -31,7 +31,7 @@ from datetime import date
 from pathlib import Path
 from urllib.request import urlopen
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", line_buffering=True)
 
 from playwright.async_api import async_playwright, Page
 
@@ -325,9 +325,10 @@ async def export_all(page: Page) -> list[tuple[Path, str]]:
         and a.get("appType", {}).get("menu") in CATEGORY_DIRS
         and a.get("name") != "Export/Import/Clone"  # skip sysAppApi-created instances
     ]
-    print(f"Found {len(regular)} regular apps/integrations/automations")
+    total_regular = len(regular)
+    print(f"Found {total_regular} regular apps/integrations/automations")
 
-    for app in regular:
+    for i, app in enumerate(regular, 1):
         aid = app["id"]
         name = (app.get("label") or app.get("name") or "").strip()
         # Strip HTML tags (some names contain <span> elements)
@@ -336,11 +337,11 @@ async def export_all(page: Page) -> list[tuple[Path, str]]:
         out = base_path(category, name)
 
         if out.exists():
-            print(f"  [skip] {name}")
+            print(f"  [{i}/{total_regular}] [skip] {name}")
             exported.append((out, name))
             continue
 
-        print(f"  Exporting {name} (id={aid}, {category})...")
+        print(f"  [{i}/{total_regular}] {name} (id={aid}, {category})...")
         content = await export_one(page, aid, name)
         if content:
             out.write_text(content, encoding="utf-8")
@@ -357,20 +358,21 @@ async def export_all(page: Page) -> list[tuple[Path, str]]:
     # ---- Rule Machine child rules ----
     print(f"\nFetching Rule Machine child rules...")
     rules = await get_rule_machine_rules(page)
-    print(f"Found {len(rules)} rules")
+    total_rules = len(rules)
+    print(f"Found {total_rules} rules")
 
-    for rule in rules:
+    for i, rule in enumerate(rules, 1):
         rid = rule.get("id")
         rname = (rule.get("label") or rule.get("name") or f"Rule {rid}").strip()
         rname = re.sub(r"<[^>]+>", "", rname).strip()
         out = base_path("Automations", rname)
 
         if out.exists():
-            print(f"  [skip] {rname}")
+            print(f"  [{i}/{total_rules}] [skip] {rname}")
             exported.append((out, rname))
             continue
 
-        print(f"  Exporting rule: {rname} (id={rid})...")
+        print(f"  [{i}/{total_rules}] {rname} (id={rid})...")
         content = await export_one(page, rid, rname)
         if content:
             out.write_text(content, encoding="utf-8")
