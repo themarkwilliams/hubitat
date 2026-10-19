@@ -38,11 +38,11 @@ Sends push notifications through the [ntfy](https://ntfy.sh) service (self-hoste
 | Message | Title | Priority | Tags |
 |---|---|---|---|
 | contains `could be malfunctioning` | Freezer Alert | max | `rotating_light` 🚨 |
-| starts with `Activity Report` | Device Not Checking In | high | `warning,zzz` ⚠️💤 |
+| starts with `Activity Report` or `Device Activity Check` | Device Not Checking In | high | `warning,zzz` ⚠️💤 |
 | starts with `Battery Report` | Low Battery | high | `warning,battery` ⚠️🔋 |
 | starts with `Nothing to report` | Device Watchdog | low | `white_check_mark` ✅ |
 
-The freezer row matches a Rule Machine freezer alert; the other three match Device Watchdog reports (below).
+The freezer row matches a Rule Machine freezer alert; `Device Activity Check` matches Hubitat's built-in Device Activity Check app; the others match Device Watchdog reports (below).
 
 ---
 
