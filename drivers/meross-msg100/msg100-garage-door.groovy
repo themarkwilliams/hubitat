@@ -1,8 +1,13 @@
 /*
  * Meross MSG100 Garage Door
  * Namespace: Hubitat Integrations
- * Version: 2.2.0
+ * Version: 2.2.0a (local change, see below)
  * Parent app: Meross MSG100 Garage Door Setup
+ *
+ * Local change (2026-10-22): status refreshes no longer force door, contact,
+ * commStatus and lastRefresh events with isStateChange: true. Hubitat now only
+ * records and delivers an event when the value changes, so subscribers such as
+ * IFTTT no longer get an unchanged "closed" or "open" on every poll.
  *
  * Controls a Meross MSG100 WiFi garage door opener directly over the LAN.
  * Single-channel device: channel 0 is the only door, so there is no
@@ -150,7 +155,7 @@ private void sendMerossRequest(String namespace, String method, Map payload, Str
 
 def refreshCallback(resp, data) {
     if (resp?.hasError()) {
-        sendEvent(name: 'commStatus', value: 'offline', isStateChange: true)
+        sendEvent(name: 'commStatus', value: 'offline')
         log.warn("Garage door did not respond to status refresh: ${resp.getErrorMessage()}")
         return
     }
@@ -170,17 +175,17 @@ def refreshCallback(resp, data) {
         def doorState = all.digest?.garageDoor?.getAt(0)
         if (doorState != null) {
             boolean isOpen = doorState.open as boolean
-            sendEvent(name: 'door', value: isOpen ? 'open' : 'closed', isStateChange: true)
-            sendEvent(name: 'contact', value: isOpen ? 'open' : 'closed', isStateChange: true)
+            sendEvent(name: 'door', value: isOpen ? 'open' : 'closed')
+            sendEvent(name: 'contact', value: isOpen ? 'open' : 'closed')
         }
 
         sendEvent(name: 'model', value: all.system?.hardware?.type, isStateChange: false)
         sendEvent(name: 'firmware', value: all.system?.firmware?.version, isStateChange: false)
-        sendEvent(name: 'commStatus', value: 'online', isStateChange: true)
-        sendEvent(name: 'lastRefresh', value: nowString(), isStateChange: true)
+        sendEvent(name: 'commStatus', value: 'online')
+        sendEvent(name: 'lastRefresh', value: nowString())
     } catch (Exception e) {
         log.error("refreshCallback() failed to parse response: ${e}")
-        sendEvent(name: 'commStatus', value: 'offline', isStateChange: true)
+        sendEvent(name: 'commStatus', value: 'offline')
     }
 }
 
@@ -212,13 +217,13 @@ def commandCallback(resp, data) {
         return
     }
 
-    sendEvent(name: 'commStatus', value: 'online', isStateChange: true)
+    sendEvent(name: 'commStatus', value: 'online')
     logDebug("Garage door acknowledged the ${which} command")
 }
 
 private void failCommand(String which, String reason) {
-    sendEvent(name: 'commStatus', value: 'offline', isStateChange: true)
-    sendEvent(name: 'door', value: 'unknown', isStateChange: true)
+    sendEvent(name: 'commStatus', value: 'offline')
+    sendEvent(name: 'door', value: 'unknown')
     log.warn("Garage door did not acknowledge the ${which} command - ${reason}")
 }
 

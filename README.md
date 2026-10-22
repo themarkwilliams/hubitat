@@ -44,6 +44,14 @@ Sends push notifications through the [ntfy](https://ntfy.sh) service (self-hoste
 
 The freezer row matches a Rule Machine freezer alert; `Device Activity Check` matches Hubitat's built-in Device Activity Check app; the others match Device Watchdog reports (below).
 
+### Meross MSG100 Garage Door (third-party, modified)
+**Files:** `drivers/meross-msg100/msg100-garage-door.groovy` (driver), `drivers/meross-msg100/msg100-garage-door-setup.groovy` (setup app)
+
+Controls a Meross MSG100 WiFi garage door opener over the local network. The setup app logs into the Meross cloud once to get the device's local key, finds the opener on the LAN (scan or manual IP) and creates the device; after that, the cloud isn't used. Written by Gordon Thelander ([GordonThelander/hubitat-msg100-garage-door](https://github.com/GordonThelander/hubitat-msg100-garage-door)), version 2.2.0, licensed under Apache 2.0 (see `drivers/meross-msg100/LICENSE`). The setup app is unmodified.
+
+**Local changes** (driver only, marked `2.2.0a`):
+- Status checks no longer force door, contact and connection-status events on every poll. Hubitat now records and delivers an event only when the value changes, so apps like IFTTT no longer receive an unchanged "closed" every 5 minutes.
+
 ---
 
 ## Apps
