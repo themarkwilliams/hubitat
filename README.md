@@ -139,7 +139,7 @@ uv run tools/browse.py
 
 The Maker API token is read from `.env` (`HUBITAT_TOKEN`). Without it, token-required commands are unavailable but everything else works.
 
-The Maker API instance ID is hard-coded as `MAKER_ID = 618` in `browse.py`; change it if your Maker API app has a different ID.
+The Maker API instance ID comes from `HUBITAT_MAKER_ID` in `.env` (default 1471, this hub's "Maker API - Hubitat tools" instance); set it to your Maker API app's ID.
 
 **Not available from these JSON endpoints (as of firmware 2.5.x):** Rule Machine rule definitions. Use the Hub Exporter below, which exports them through the hub's Export/Import/Clone UI.
 

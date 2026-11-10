@@ -5,6 +5,7 @@ Browse a live Hubitat hub via its local HTTP API.
 Configuration - copy .env.example to .env and fill in your values, or set env vars directly:
   HUBITAT_IP     hub's local IP address
   HUBITAT_TOKEN  Maker API access token (Apps > Maker API > copy from URL examples)
+  HUBITAT_MAKER_ID  installed app ID of that Maker API instance (default 1471)
 
 What works (no auth required):
   /hub2/hubData              hub metadata, alerts, firmware version
@@ -34,7 +35,7 @@ load_dotenv()
 
 # -- configuration --------------------------------------------------------------
 HUB        = os.environ.get("HUBITAT_IP",    "http://192.168.1.200")
-MAKER_ID   = 618          # installed app ID of the Maker API instance
+MAKER_ID   = int(os.environ.get("HUBITAT_MAKER_ID", "1471"))  # installed app ID of the Maker API instance
 TOKEN      = os.environ.get("HUBITAT_TOKEN", "")
 # -------------------------------------------------------------------------------
 
@@ -104,11 +105,10 @@ def show_maker_devices(devices: list, filt: str = ""):
     for d in shown:
         label  = (d.get("label") or d.get("name") or "")[:34]
         dtype  = (d.get("type") or "")[:34]
-        attrs  = ", ".join(
-            f"{a['name']}={a.get('currentValue', '?')}"
-            for a in (d.get("attributes") or [])
-            if a.get("currentValue") is not None
-        )[:60]
+        raw = d.get("attributes") or {}
+        # Maker API 1.1.x returns {name: value}; older versions a list of {name, currentValue}
+        pairs = raw.items() if isinstance(raw, dict) else ((a.get("name"), a.get("currentValue")) for a in raw)
+        attrs  = ", ".join(f"{k}={v}" for k, v in pairs if v is not None)[:60]
         print(f"{d['id']:>5}  {label:<35}  {dtype:<35}  {attrs}")
     print(f"\n{len(shown)} device(s)")
 
