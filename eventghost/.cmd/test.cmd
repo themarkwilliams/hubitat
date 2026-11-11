@@ -1,0 +1,1 @@
+"C:\OneDrive\Code\hubitat\eventghost\.venv\Scripts\python.exe" "C:\OneDrive\Code\hubitat\eventghost\get_info2.py"

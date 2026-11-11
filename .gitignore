@@ -2,3 +2,4 @@ backup/
 .env
 /.env
 /command.txt
+/eventghost/.venv/
