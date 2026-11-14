@@ -3,3 +3,6 @@ backup/
 /.env
 /command.txt
 /eventghost/.venv/
+
+# Notes for Claude: local only (public repo)
+/CLAUDE.md
