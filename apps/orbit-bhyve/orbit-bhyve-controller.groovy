@@ -18,6 +18,11 @@
 * Local change (2026-10-18): refresh() no longer throws a NullPointerException when the Bhyve
 * cloud sends watering_status without current_station (null-safe toInteger() at the station check)
 *
+* Local change (2026-11-18): Online/Offline notifications wait until the status has held for
+* connectedHoldMins (default 15) and only fire when it differs from the last one sent, so a timer
+* that flaps every few seconds (one with no batteries) no longer floods the phone. Also fixes the
+* text: evt.value is the string "false", which Groovy treats as true, so every message said Online.
+*
 */
 import groovy.time.*
 import java.text.SimpleDateFormat
@@ -102,6 +107,7 @@ def notificationOptions() {
 
         section("Event Notification Filtering") {
             input name: "eventsToNotify", type: "enum", title: "Which Events", multiple: true, options: ['battery':'Battery Low','connected':'Online/Offline','rain':'Rain Delay','valve':'Valve Open/Close']
+            input name: "connectedHoldMins", type: "number", title: "Minutes an Online/Offline change must hold before notifying", defaultValue: 15, range: "1..1440", required: false
         }
     }
 }
@@ -164,9 +170,58 @@ def batteryHandler(evt) {
     if (evt.isStateChange && (evt.value.toInteger() <= 40) ) 
         send_message("The ${evt.linkText}'s battery is now at ${evt.value}% at ${timestamp()}")
 }
+// Online/Offline changes are debounced: note when each device last changed, and let
+// checkConnectedStatus() notify once a device has held its status for connectedHoldMins
+// and the status differs from the last one notified (state.connNotified).
 def is_connectedHandler(evt) {
-    if (evt.isStateChange)
-        send_message("The ${evt.linkText}'s WiFi Online Status is now ${evt.value?'Online':'Offline'} at ${timestamp()}")
+    if (!evt.isStateChange) return
+    def id = evt.deviceId.toString()
+    def online = evt.value?.toString() == "true"
+    def notified = state.connNotified ?: [:]
+    if (notified[id] == null) {
+        // First change seen for this device: the status before it is the baseline
+        notified[id] = !online
+        state.connNotified = notified
+    }
+    def changed = state.connChanged ?: [:]
+    changed[id] = now()
+    state.connChanged = changed
+    if (!state.connCheckAt || state.connCheckAt < now()) {
+        state.connCheckAt = now() + connectedHoldMs()
+        runIn((connectedHoldMs() / 1000) as Integer, "checkConnectedStatus")
+    }
+}
+
+def connectedHoldMs() {
+    return ((connectedHoldMins ?: 15) as Integer) * 60 * 1000L
+}
+
+def checkConnectedStatus() {
+    def changed = state.connChanged ?: [:]
+    def notified = state.connNotified ?: [:]
+    Long nextDue = null
+    getChildDevices().each { d ->
+        def id = d.id.toString()
+        if (changed[id] == null) return
+        Long due = (changed[id] as Long) + connectedHoldMs()
+        if (due > now()) {
+            nextDue = (nextDue == null || due < nextDue) ? due : nextDue
+            return
+        }
+        def online = d.currentValue("is_connected")?.toString() == "true"
+        if (notified[id] != online)
+            send_message("The ${d.displayName}'s WiFi Online Status is now ${online ? 'Online' : 'Offline'} at ${timestamp()}")
+        notified[id] = online
+        changed.remove(id)
+    }
+    state.connChanged = changed
+    state.connNotified = notified
+    if (nextDue != null) {
+        state.connCheckAt = nextDue
+        runIn(Math.max(1, ((nextDue - now()) / 1000) as Integer), "checkConnectedStatus")
+    } else {
+        state.connCheckAt = null
+    }
 }
 
 def refreshLastWateringAmount(device_id) {
