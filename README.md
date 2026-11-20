@@ -65,6 +65,13 @@ Driver for Tuya Zigbee RGBW bulbs, with a `healthStatus` attribute that goes off
 
 ## Apps
 
+### Chromecast Helper (third-party, modified)
+**File:** `apps/chromecast-helper/chromecast-helper.groovy`
+
+Re-initializes the hub's connections to Google/Nest speakers every few minutes so `speak` keeps working. Written by Bryan Turcotte ([bptworld/Hubitat](https://github.com/bptworld/Hubitat/)), version 2.0.3, licensed under Apache 2.0 (header in the file).
+
+**Local changes** (`2.0.3a`): it now runs on a fixed cron schedule instead of a `runIn` chain, which stopped for good the first time `initialize()` threw (in November 2026 that left every speaker disconnected and silent for 18 days); one speaker failing no longer stops the others; and it re-initializes 60 s after every hub start.
+
 ### Battery Monitor
 **File:** `apps/battery-monitor-app.groovy`
 

@@ -38,6 +38,9 @@
  *
  *  Changes:
  *
+ *  2.0.3a - 11/20/26 - Local change (themarkwilliams, homelab#214): re-initialize on a fixed cron schedule instead of
+ *                      a runIn chain, which stopped for good the first time speaker.initialize() threw; one speaker
+ *                      failing no longer stops the others; re-initialize 60 s after every hub start.
  *  2.0.3 - 08/02/20 - Cosmetic changes
  *  2.0.2 - 06/13/20 - Minor changes
  *  2.0.1 - 04/27/20 - Cosmetic changes
@@ -51,7 +54,7 @@ import java.text.SimpleDateFormat
 
 def setVersion(){
     state.name = "Chromecast Helper"
-	state.version = "2.0.3"
+	state.version = "2.0.3a"
 }
 
 definition(
@@ -122,13 +125,25 @@ def updated() {
 }
 
 def initialize() {
+    // 2.0.3a: a fixed cron schedule instead of a runIn chain (the chain died for good the first time
+    // speaker.initialize() threw), plus a restart after every hub reboot.
+    unschedule("initializeSpeaker")
+    unsubscribe()
+    subscribe(location, "systemStart", "hubStartHandler")
     checkEnableHandler()
     if(pauseApp || state.eSwitch) {
         log.info "${app.label} is Paused or Disabled"
     } else {
         setDefaults()
-        runIn(gInitRepeat,initializeSpeaker)
+        Integer mins = Math.max(1, Math.min(59, (gInitRepeat ?: 4) as Integer))
+        schedule("0 */${mins} * ? * *", "initializeSpeaker")
+        runIn(5, "initializeSpeaker")
     }
+}
+
+def hubStartHandler(evt) {
+    log.info "${app.label}: hub started, re-initializing speakers in 60 seconds"
+    runIn(60, "initializeSpeaker")
 }
 
 def initializeSpeaker() {
@@ -137,9 +152,14 @@ def initializeSpeaker() {
         log.info "${app.label} is Paused or Disabled"
     } else {
         if(logEnable) log.debug "In initializeSpeaker - Initializing ${speaker}"
-        speaker.initialize()
-        repeat = gInitRepeat * 60
-        runIn(repeat,initializeSpeaker)
+        // 2.0.3a: one speaker failing must not stop the others (or the schedule)
+        speaker?.each { s ->
+            try {
+                s.initialize()
+            } catch (e) {
+                log.warn "${app.label}: initialize failed on ${s.displayName}: ${e.message}"
+            }
+        }
     }
 }
     
