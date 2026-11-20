@@ -52,6 +52,15 @@ Controls a Meross MSG100 WiFi garage door opener over the local network. The set
 **Local changes** (driver only, marked `2.2.0a`):
 - Status checks no longer force door, contact and connection-status events on every poll. Hubitat now records and delivers an event only when the value changes, so apps like IFTTT no longer receive an unchanged "closed" every 5 minutes.
 
+### Tuya Advanced Zigbee RGBW Bulb (third-party, modified)
+**File:** `drivers/tuya-rgbw-bulb/tuya-advanced-zigbee-rgbw-bulb.groovy`
+
+Driver for Tuya Zigbee RGBW bulbs, with a `healthStatus` attribute that goes offline when the bulb stops answering. Written by Krassimir Kossev ([kkossev/Hubitat](https://github.com/kkossev/Hubitat/tree/development/Drivers/Tuya%20Advanced%20Zigbee%20RGBW%20Bulb), ver. 1.1.1, based on bradsjm's Philips Hue driver), licensed under Apache 2.0 (see `drivers/meross-msg100/LICENSE` for the text).
+
+**Local changes** (1.2.0 and 1.3.0, 2026-07-26), for bulbs on a dumb wall switch whose firmware comes back on in its own colour:
+- **Fixed startup colour** (`startupColorEnable`, `startupCT`, `startupLevel`): Configure writes a fixed colour temperature and level to the bulb's startup attributes (0x4010, 0x4000) instead of 0xFFFF ("restore previous"). Needs firmware support.
+- **Re-apply on power restore** (`reapplyOnRestore`, `restoreDelay`): when the bulb rejoins (Zigbee device announce) or its `healthStatus` goes offline → online, the driver re-sends that colour temperature and level after the delay. New command `applyStartupColor` does the same by hand.
+
 ---
 
 ## Apps
