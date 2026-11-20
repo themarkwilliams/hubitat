@@ -103,12 +103,11 @@ def testMessage(message) {
 def deviceNotification(message) {
     if (logEnable) log.debug "Sending notification: ${message}"
 
-    // Save last message
-    state.lastMessage = message
-    sendEvent(name: "lastMessageSent", value: message)
-
-    // Send to ntfy
-    sendNtfyMessage(message)
+    // Record it as the last message only once ntfy has accepted it
+    if (sendNtfyMessage(message)) {
+        state.lastMessage = message
+        sendEvent(name: "lastMessageSent", value: message)
+    }
 }
 
 // Implementation of "Speech Synthesis" capability
@@ -128,11 +127,15 @@ private Map messageContext(message) {
     return null
 }
 
-// Send message to ntfy
-private sendNtfyMessage(message) {
-    if (!ntfyServer || !ntfyTopic || !ntfyAuthToken) {
-        log.error "Missing configuration for ntfy service"
-        return
+// Send message to ntfy; returns true when ntfy accepted it (HTTP 2xx)
+private boolean sendNtfyMessage(message) {
+    def missing = []
+    if (!ntfyServer) missing << "Ntfy Server"
+    if (!ntfyTopic) missing << "Topic Name"
+    if (!ntfyAuthToken) missing << "Authentication Token"
+    if (missing) {
+        log.error "ntfy message not sent: missing setting(s) ${missing.join(', ')}"
+        return false
     }
 
     def topic = ntfyTopic.trim()
@@ -166,10 +169,18 @@ private sendNtfyMessage(message) {
             body: message
         ]
         
+        def sent = false
         httpPost(postParams) { response ->
-            if (logEnable) log.debug "ntfy message sent successfully (HTTP ${response.status})"
+            sent = response.status >= 200 && response.status < 300
+            if (sent) {
+                if (logEnable) log.debug "ntfy message sent successfully (HTTP ${response.status})"
+            } else {
+                log.error "ntfy refused the message (HTTP ${response.status})"
+            }
         }
+        return sent
     } catch (Exception e) {
         log.error "Error sending ntfy message: ${e.message}"
+        return false
     }
 }
