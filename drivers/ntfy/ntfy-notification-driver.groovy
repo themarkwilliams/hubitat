@@ -41,7 +41,7 @@ metadata {
         input name: "defaultPriority", type: "enum", title: "Default Priority", options: ["min", "low", "default", "high", "max"], defaultValue: "default", required: true
         input name: "defaultTitle", type: "text", title: "Default Title", description: "Default title for notifications", defaultValue: "Hubitat Alert"
         input name: "defaultTags", type: "text", title: "Default Tags", description: "Default tags for notifications (comma-separated, e.g. warning,home)", defaultValue: "hubitat"
-        input name: "autoContext", type: "bool", title: "Set title, priority and tags from message content", description: "Device Activity Check and Device Watchdog reports and freezer alerts get their own title, priority and icon; other messages use the defaults", defaultValue: false
+        input name: "autoContext", type: "bool", title: "Set title, priority and tags from message content", description: "Device Activity Check and Device Watchdog reports, freezer alerts and water leak alerts get their own title, priority and icon; other messages use the defaults", defaultValue: false
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: true
     }
 }
@@ -120,6 +120,7 @@ def speak(String text, BigDecimal volume = null, String voice = null) {
 private Map messageContext(message) {
     def text = message?.toString() ?: ""
     if (text.contains("could be malfunctioning")) return [title: "Freezer Alert", priority: "max", tags: "rotating_light"]
+    if (text.startsWith("Water Detected")) return [title: "Water Leak", priority: "max", tags: "rotating_light,droplet"]
     if (text.startsWith("Activity Report")) return [title: "Device Not Checking In", priority: "high", tags: "warning,zzz"]
     if (text.startsWith("Device Activity Check")) return [title: "Device Not Checking In", priority: "high", tags: "warning,zzz"]
     if (text.startsWith("Battery Report")) return [title: "Low Battery", priority: "high", tags: "warning,battery"]
